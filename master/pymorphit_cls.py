@@ -1,21 +1,17 @@
 # coding: utf-8
 
 # by G. De Gasperis and I. Grappasonno, UnivAQ http://www.univaq.it
-# adapted by: H. de Vos
+# adapted by: H. de Vos: hdvos93[at]gmail.com
 
-#package for debug
-import time
 
-#Packages for technical support
+# Packages for technical support
 import re
 import codecs
 import json
 import os
-import sys
 
-#Packages for linguistic support
+# Packages for linguistic support
 from string import punctuation
-
 
 
 class PyMorphITCLS(object):
@@ -25,6 +21,10 @@ class PyMorphITCLS(object):
         self.DRULES_FILE = 'drules.json'
         self.DEBUG = False
 
+        self.dMorphit = {}
+        self.dRules = {}
+        self.catTree = {}
+
         print('initialize models...', flush=True)
         self.initialize_models()
         print('initializing done...', flush=True)
@@ -32,13 +32,16 @@ class PyMorphITCLS(object):
     # Initialisation funcs --------------------------------------
 
     def catChoice(self):
+        '''
+        Function for the Guided Mode ('G') To choose a category.
+        :return: None
+        '''
         global catS
         catL = list(catS)
         ci = 1
         for i, c in enumerate(catL):
             print(i + 1, c)
-            ci += 1
-            ci += 1
+
         a = int(input('Quale? :'))
         if (a > 0) and (a <= len(catL)):
             return catL[a]
@@ -46,37 +49,26 @@ class PyMorphITCLS(object):
             return 'J:j'
 
     def addCatTree(self, catK, catV):
-        # global catTree
+        """
+        Function to add category to the CatTree.
+        :param catK:
+        :param catV:
+        :return: None
+        """
+
         if not catK in self.catTree.keys():
             self.catTree[catK] = set([])
         self.catTree[catK] = self.catTree[catK].union(self.catTree[catK], set(catV))
-        pass
 
-    def makeTupleList(self, lx):
-        out = []
-        for e in lx:
-            if type(e) == type((0, 0)):
-                # print(e)
-                out.append(e)
-            elif type(e) == type([]):
-                out += self.makeTupleList(e)
-            else:
-                if self.DEBUG:
-                    print('?????')
-        return out
 
     def initialize_models(self):
-        myPuntuaction = punctuation
-        myPuntuaction = myPuntuaction.replace('-', '')
-        r = re.compile(r'[\s{}]+'.format(re.escape(myPuntuaction)))
+        """
+        Initializes (loads) the models into the appropriate data structures.
+        :return: None
+        """
 
-        self.dMorphit = {}
-        self.dRules = {}
-        self.catTree = {}
-
-        DRULES_FILE = 'drules.json'
-        if os.path.isfile(DRULES_FILE):
-            dRules = json.loads(open(DRULES_FILE, 'r').read())
+        if os.path.isfile(self.DRULES_FILE):
+            self.dRules = json.loads(open(self.DRULES_FILE, 'r').read())
 
         fm = codecs.open('morph-it_048_utf8.txt', 'r', encoding='utf-8')
 
@@ -106,14 +98,33 @@ class PyMorphITCLS(object):
 
     # Tokenization funcs --------------------------------------------------------
 
+    def makeTupleList(self, lx):
+        """
+        Makes proper list of tuples of a tokenized line.
+        :param lx: <list> or <tuple> A tokenized line
+        :return: <list> A list of tuples of form [..., (tokentype, lexeme), ...]. Token type has values like PUNT (punctiation) or LESSEMA (lexeme)
+        """
+
+        out = []
+        for e in lx:
+            if type(e) == tuple:
+                out.append(e)
+            if type(e) == list:
+                out += self.makeTupleList(e)
+            else:
+                if self.DEBUG:
+                    print('?????')
+        return out
+
     def tokenize(self, line):
         scanner = re.Scanner([
             (r"[0-9]+", lambda scanner, token: ("DET-NUM", token)),
-            (r"[A-Z]*[a-z]+[àèéìòù]*", lambda scanner, token: ("LESSEMA", token)),
+            (r"[A-Z]*[a-z]+[\w]*", lambda scanner, token: ("LESSEMA", token)),
+            (r"[\w]+", lambda scanner, token: ("LESSEMA", token)),
             (r"[!.?]+", lambda scanner, token: ("PUNT_FIN", token)),
             (r"[,;:]+", lambda scanner, token: ("PUNT", token)),
             (r"\s+", None),  # None == skip token.
-        ])
+        ], re.UNICODE)
         out0 = scanner.scan(line)
 
         return self.makeTupleList(out0)
@@ -122,7 +133,7 @@ class PyMorphITCLS(object):
 
     def RomanTranslate(self, s):
         '''
-
+        Translates a roman number to an integer in the arabic system.
         :param s: <str> Roman Number
         :return: <int> Decimal equivalent of the roman number
         '''
@@ -134,6 +145,11 @@ class PyMorphITCLS(object):
             return ''
 
     def isNumber(self, token):
+        """
+        Checks whether a certain string is a number.
+        :param token: <str>
+        :return: <bool> True if token is a number, False if token is not a number
+        """
         out = False
         if len(token) > 0:
             try:
@@ -146,7 +162,13 @@ class PyMorphITCLS(object):
         return out
 
     def learnLemma(self, lemmaPrec, lessema, succ):
-        # global dMorphit, dRules
+        """
+        Learns a new lemma pattern and writes it to dMorphit. First it tries automatically to find pattern and otherwise it asks the user for input.
+        :param lemmaPrec: <tuple>: tuple containing (preceding lemma, POS-tag)
+        :param lessema: <tuple> the target lexeme and type of the lexeme. (type <str>, target word <str>)
+        :param succ: <tuple>. Next word. unlemmatized word succeeding the target word.
+        :return: <str>. The learnt pattern or an empty string ('')
+        """
         ltupla = str((lemmaPrec[1], lessema, succ[1]))
         if ltupla in self.dRules.keys():
             c = self.dRules[ltupla]
@@ -174,21 +196,43 @@ class PyMorphITCLS(object):
                     return (lessema, self.UNKOWN)
                 return ''
 
-    def makeLemma(self, lemmaPrec, lessema, succ, dMorphit, dRules):
+    def makeLemma(self, lemmaPrec, lessema, succ):
+        """
+        Learns new lemma and writes it to the rules file.
+        :param lemmaPrec: <tuple>: tuple containing (preceding lemma, POS-tag)
+        :param lessema: <tuple> the target lexeme and type of the lexeme. (type <str>, target word <str>)
+        :param succ: <tuple>. Next word. unlemmatized word succeeding the target word.
+        :return: <str> the learnt lemma or an empty string if no lemma has been learnt.
+        """
         out = self.learnLemma(lemmaPrec, lessema, succ)
         if out == '':
-            open(self.DRULES_FILE, 'w').write(json.dumps(dRules))
+            open(self.DRULES_FILE, 'w').write(json.dumps(self.dRules))
             exit(0)
+        open(self.DRULES_FILE, 'w').write(json.dumps(self.dRules))
+
         return out
 
     def hasLemma(self, lessema):
+        """
+        Checks if lemma exists in the database.
+        :param lessema: lexeme
+        :return: <bool> True if lexeme in data base. False if lexeme not in data base.
+        """
 
-        # global dMorphit
         return lessema in self.dMorphit.keys()
 
     def getLemma(self, lemmaPrec, lessema, succ, mode='G'):
+        """
+        Retreives the lemma for a given lexeme.
+        :param lemmaPrec: <tuple>: tuple containing (preceding lemma, POS-tag)
+        :param lessema: <tuple> the target lexeme and type of the lexeme. (type <str>, target word <str>)
+        :param succ: <tuple>. Next word. unlemmatized word succeeding the target word.
+        :param mode: <str> Either 'G' (user guided) or 'Q' (Quick). 'G'- mode is the mode as designed by De Gasperis and I. Grappasonno.
+        The Q mode is a quick mode for if no user guidance is required. In this case, if the system is uncertain it wil return the original lexeme.
+        The Q method is quicker as no human input is needed but also less accurate.
+        :return: <tuple> (found lemma, POS-tag)
+        """
 
-        out = u''  # <-- redundant.
         lemmi = self.dMorphit[lessema]
         out = lemmi[0]
         if len(lemmi) > 1:
@@ -236,13 +280,23 @@ class PyMorphITCLS(object):
 
         return out
 
-    def lemmatize_line(self, line, mode = 'G'):
+
+    def lemmatize_line(self, line, mode='G'):
+        """
+        Tokenizes and then Lemmatizes a single line of text.
+        :param line: <str> a line of text.
+        :param mode: <str> Either 'G' (user guided) or 'Q' (Quick). 'G'- mode is the mode as designed by De Gasperis and I. Grappasonno.
+        The Q mode is a quick mode for if no user guidance is required. In this case, if the system is uncertain it wil return the original lexeme.
+        The Q method is quicker as no human input is needed but also less accurate.
+        :return: <str> the same line of text, but lemmatized.
+        """
         lemmaPrec = u'[]'
         lemmabile = lemmaPrec
-        succ = u''
+
 
         lemmalist = []
         tl = self.tokenize(line.strip())
+
         for widx, t in enumerate(tl):
             if t[0] == 'LESSEMA':
                 succ = '[]'
@@ -259,24 +313,25 @@ class PyMorphITCLS(object):
 
                 lemmalist.append(lemmabile[0])
 
-        linestr = '{}\n'.format(' '.join(lemmalist))
+        linestr = '{}'.format(' '.join(lemmalist))
 
         return linestr
 
-
     def lemmatize_file(self, filename='collodi_pinocchio_utf8.txt', mode='G'):
-
+        """
+        Takes a filename and lemmatizes the file. It writes the lemmatized file to a new file named '<origfile>.lemmatized.txt'
+        :param filename: name of the input file that needs to be lemmatized.
+        :param mode: <str> Either 'G' (user guided) or 'Q' (Quick). 'G'- mode is the mode as designed by De Gasperis and I. Grappasonno.
+        The Q mode is a quick mode for if no user guidance is required. In this case, if the system is uncertain it wil return the original lexeme.
+        The Q method is quicker as no human input is needed but also less accurate.
+        :return: None
+        """
         outfile = ''.join(filename.split('.')[:-1]) + '.lemmatized.txt'
 
         out = open(outfile, 'wt')
 
         with codecs.open(filename, 'r', 'utf-8') as fc:
-            lemmaPrec = u'[]'
-            lemmabile = lemmaPrec
-            succ = u''
-
             for line in fc:
-
                 lemmatized_line = self.lemmatize_line(line, mode)
 
                 out.write(lemmatized_line)
@@ -284,6 +339,8 @@ class PyMorphITCLS(object):
         out.close()
         print('Lemmatized file saved as {}'.format(outfile))
 
+
 if __name__ == '__main__':
     lemmatizer = PyMorphITCLS()
+    lemmatizer.DEBUG = True
     lemmatizer.lemmatize_file(mode='Q')
